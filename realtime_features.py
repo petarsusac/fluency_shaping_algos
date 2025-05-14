@@ -4,14 +4,16 @@ import pyaudio
 import librosa
 import matplotlib
 import scipy.signal
-import silero_vad
 import threading
 import imufusion
 import serial
+from vad import vad_silero, vad_power_thresholding, USE_SILERO
+from imu_respiration import imu_respiration_init, imu_respiration_cleanup, get_respiration_sample
+from onset import get_hard_onsets
+from speech_rate import signal_power_db, speech_rate_estimate_power
 
 matplotlib.use('TkAgg')
 
-USE_VAD = False
 PROC_FRAME_LEN=1024
 PROC_HOP_LEN=256
 FRAME_LEN_SEC=5
@@ -21,115 +23,17 @@ CHUNK = 8000
 FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 
-if USE_VAD:
-    vad = silero_vad.load_silero_vad()
-
-def power_vad(signal_power_db, threshold_db=-60, hangover=5):
-    speech_timestamps = []
-    power_thresholded = np.array(signal_power_db >= threshold_db).astype(int)
-    power_thresholded_hangover = np.zeros(len(power_thresholded))
-    for i in range(1, len(power_thresholded)):
-        if power_thresholded[i - min(i, hangover):i].any():
-            power_thresholded_hangover[i] = 1
-        else:
-            power_thresholded_hangover[i] = 0
-
-    start = -1
-    end = -1
-    for i in range(0, len(power_thresholded)):
-        if (power_thresholded_hangover[i] == 1 and i == 0):
-            start = i
-        elif i != 0 and (power_thresholded_hangover[i] == 1 and power_thresholded_hangover[i - 1] == 0):
-            start = i
-        
-        if i != 0 and ((power_thresholded_hangover[i] == 0 and power_thresholded_hangover[i - 1] == 1) 
-                       or (power_thresholded_hangover[i] == 1 and i == len(power_thresholded_hangover) - 1)):
-            end = i
-            speech_timestamps.append({"start": start, "end": end})
-    return speech_timestamps, power_thresholded_hangover
-    
-
-def signal_power(signal, frame_length, hop):
-    power = np.zeros((len(signal) - frame_length) // hop + 1)
-    for i in range(0, len(signal), hop):
-        frame = signal[i:i + frame_length]
-        frame_idx = i // hop
-        if len(frame) < frame_length:
-            break
-        power[frame_idx] = np.sum(frame ** 2) / frame_length
-    return power
-
-def signal_power_db(signal, frame_length, hop):
-    return 10 * np.log10(signal_power(signal, frame_length, hop))
-
-def speech_rate_estimate_power(power, zcr):
-    peaks_power = scipy.signal.find_peaks(power, height=-60, prominence=2)[0]
-    unvoiced_peaks_idxs = []
-    for i, peak in enumerate(peaks_power):
-        if zcr[peak] > 0.4:
-            unvoiced_peaks_idxs.append(i)
-    peaks_power = np.delete(peaks_power, unvoiced_peaks_idxs)
-    return {
-        "num_syllables": peaks_power.shape[0],
-        "peaks": peaks_power,
-    }
-
-def rise_slope(signal):
-    # Signal is in dB, so values closer to 0 should be greater
-    signal = 100 + signal
-    signal = signal - np.min(signal)
-
-    # Find the max
-    max_idx = np.argmax(signal)
-    i = max_idx
-
-    # Search to the left for the 90% point
-    while (signal[i] > 0.9 * signal[max_idx]) and (i > 0):
-        i -= 1
-
-    if i <= 0:
-        # 90% point not found
-        return 0
-    else:
-        right = i
-    
-    # Search to the left for the 10% point
-    while (signal[i] > 0.1 * signal[max_idx]) and (i > 0):
-        i -= 1
-
-    if i <= 0:
-        return 0
-    else:
-        left = i
-
-    if right != left:
-        return (signal[right] - signal[left]) / (right - left)
-    else:
-        return np.inf
-
 def stop():
     input("Press Enter to stop:")
     global continue_recording
     continue_recording = False
 
-def read_accelerometer_data_from_serial():
-    sos = scipy.signal.butter(4, 0.1, 'low', output='sos')
-    zi = scipy.signal.sosfilt_zi(sos)
-
+def acq_respiration():
     while continue_recording:
-        if ser.in_waiting > 0:
-            line = ser.readline().decode('utf-8').strip()
-            try:
-                acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z = map(float, line.split(','))
-                ahrs.update_no_magnetometer(np.array([gyro_x, gyro_y, gyro_z]), np.array([acc_x, acc_y, acc_z]), 1/10)
-                x, y, z = ahrs.earth_acceleration
-                y_filtered, zi = scipy.signal.sosfilt(sos, [y], zi=zi)
-
-                respiration_filtered.pop(0)
-                respiration_filtered.append(y_filtered[0] * -2)
-            except ValueError:
-                # Skip invalid lines
-                pass
+        respiration_sample = get_respiration_sample()
+        if respiration_sample is not None:
+            respiration_filtered.pop(0)
+            respiration_filtered.append(respiration_sample)
 
 
 def init_globals():
@@ -137,10 +41,9 @@ def init_globals():
     global chunks, chunks_power, chunks_zcr, rate_list, smoothed_rate_list, b, a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
     global fig, line1, line2, line3, line2_peaks, line2_vertical_lines, line2_activity, line3_vertical_lines, line4, line4_activity, ax1, ax2, ax3, ax4
     global ser, ahrs, respiration_filtered
-    global stop_thread, serial_thread, accel_present
+    global stop_thread, serial_thread, imu_present
 
     continue_recording = True
-    accel_present = True
     chunks = [np.zeros(CHUNK) for _ in range((FRAME_LEN_SEC * RATE) // CHUNK)]
     chunks_power = [signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
     chunks_zcr = [librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0] for chunk in chunks]
@@ -155,18 +58,13 @@ def init_globals():
     hard_onsets = []
     phonation_intervals = []
     respiration_filtered = [0.0] * FRAME_LEN_SEC * 10
-    ahrs = imufusion.Ahrs()
-
-    try:
-        ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
-    except serial.serialutil.SerialException:
-        accel_present = False
+    imu_present = imu_respiration_init()
 
     stop_thread = threading.Thread(target=stop)
     stop_thread.start()
 
-    if accel_present:
-        serial_thread = threading.Thread(target=read_accelerometer_data_from_serial)
+    if imu_present:
+        serial_thread = threading.Thread(target=acq_respiration)
         serial_thread.start()
 
     fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
@@ -220,18 +118,10 @@ def audio_process(in_data, frame_count, time_info, status):
     hard_onsets = []
     phonation_intervals=[]
 
-    if USE_VAD:
-        speech_timestamps = silero_vad.get_speech_timestamps(audio_frame, vad, min_silence_duration_ms=500, threshold=0.3)
+    if USE_SILERO:
         num_syllables = 0
         speech_duration_s = FRAME_LEN_SEC
-        speech_activity = np.zeros(len(power))
-        # for timestamp in speech_timestamps:
-        #     speech_duration_s += (timestamp['end'] - timestamp['start']) / RATE
-        for timestamp in speech_timestamps:
-                timestamp['start'] = timestamp['start'] // PROC_HOP_LEN
-                timestamp['end'] = timestamp['end'] // PROC_HOP_LEN
-                speech_activity[timestamp['start']:timestamp['end']] = 1
-
+        speech_timestamps, speech_activity = vad_silero(audio_frame, len(power), PROC_HOP_LEN)
         for peak in speech_rate_estimate['peaks']:
             for timestamp in speech_timestamps:
                 if peak >= timestamp['start'] and peak <= timestamp['end']:
@@ -242,19 +132,10 @@ def audio_process(in_data, frame_count, time_info, status):
             speech_rate = 0
     else:
         speech_rate = speech_rate_estimate["num_syllables"] * (60 // FRAME_LEN_SEC)
-        speech_timestamps, speech_activity = power_vad(power, threshold_db=-60, hangover=30)
+        speech_timestamps, speech_activity = vad_power_thresholding(power, threshold_db=-60, hangover=30)
 
     # Onset
-    for timestamp in speech_timestamps:
-        if (timestamp["start"] != 1):
-            power_start = (timestamp["start"] - RATE//20//PROC_HOP_LEN) # 50 ms padding
-            power_end = power_start + RATE//10//PROC_HOP_LEN # 100 ms segment
-            if power_end < len(power):
-                power_segment = power[power_start:power_end]
-                if len(power_segment) > 0:
-                    slope = rise_slope(power_segment) # 500 ms segment
-                    if slope > 4:
-                        hard_onsets.append(timestamp["start"])
+    hard_onsets = get_hard_onsets(speech_timestamps, power)
 
     # Phonation intervals
     i = 0
@@ -332,8 +213,9 @@ def main():
     p.terminate()
     plt.close()
     stop_thread.join()
-    if accel_present:
+    if imu_present:
         serial_thread.join()
+    imu_respiration_cleanup()
 
 if __name__ == "__main__":
     main()
