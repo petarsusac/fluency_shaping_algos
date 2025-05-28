@@ -5,8 +5,6 @@ import librosa
 import matplotlib
 import scipy.signal
 import threading
-import imufusion
-import serial
 from vad import vad_silero, vad_power_thresholding, USE_SILERO
 from imu_respiration import imu_respiration_init, imu_respiration_cleanup, get_respiration_sample
 from onset import get_hard_onsets
@@ -37,13 +35,15 @@ def acq_respiration():
 
 
 def init_globals():
-    global continue_recording
-    global chunks, chunks_power, chunks_zcr, rate_list, smoothed_rate_list, b, a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
+    global continue_recording, chunk_idx
+    global chunks, chunks_power, noise_power, chunks_zcr, rate_list, smoothed_rate_list, b, a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
     global fig, line1, line2, line3, line2_peaks, line2_vertical_lines, line2_activity, line3_vertical_lines, line4, line4_activity, ax1, ax2, ax3, ax4
     global ser, ahrs, respiration_filtered
     global stop_thread, serial_thread, imu_present
 
     continue_recording = True
+    chunk_idx = 0
+    noise_power = 0
     chunks = [np.zeros(CHUNK) for _ in range((FRAME_LEN_SEC * RATE) // CHUNK)]
     chunks_power = [signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
     chunks_zcr = [librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0] for chunk in chunks]
@@ -78,7 +78,7 @@ def init_globals():
     line4, = ax4.plot(respiration_filtered)
     line4_activity, = ax4.step(np.arange(len(speech_activity)) / (len(speech_activity) / len(respiration_filtered)), speech_activity, color='k')
     ax1.set_ylim(0, 300)
-    ax2.set_ylim(-80, 5)
+    ax2.set_ylim(-50, 5)
     ax2.set_xlim(0, len(power))
     ax3.set_ylim(0, 0.4)
     ax1.set_title('Speech rate (syllables/min)')
@@ -98,11 +98,15 @@ def init_globals():
 
 def audio_process(in_data, frame_count, time_info, status):
     global chunks, rate_list, smoothed_rate_list, b, a, speech_rate_estimate, speech_timestamps, speech_activity, zcr, hard_onsets, phonation_intervals, power, zcr
+    global chunk_idx, noise_power
 
+    chunk_idx += 1
     chunk = np.frombuffer(in_data, dtype=np.float32)
     chunks.pop(0)
     chunks.append(chunk)
     chunk_no_offset = chunk - np.mean(chunk)
+    # High pass filter with 100 Hz cutoff
+    chunk_no_offset = scipy.signal.filtfilt([1, -1], [1, -0.99], chunk_no_offset)
     audio_frame = np.concatenate(chunks)
     
     chunks_power.pop(0)
@@ -112,8 +116,11 @@ def audio_process(in_data, frame_count, time_info, status):
 
     power = np.concatenate(chunks_power)
     zcr = np.concatenate(chunks_zcr)
+    if chunk_idx == 4:
+        # Estimate noise power from the first 4 chunks (2 seconds)
+        noise_power = np.mean(np.concatenate(chunks_power[-4:]))
 
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr)
+    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+5)
     zcr = scipy.signal.filtfilt(b, a, zcr)
     hard_onsets = []
     phonation_intervals=[]
@@ -132,10 +139,10 @@ def audio_process(in_data, frame_count, time_info, status):
             speech_rate = 0
     else:
         speech_rate = speech_rate_estimate["num_syllables"] * (60 // FRAME_LEN_SEC)
-        speech_timestamps, speech_activity = vad_power_thresholding(power, threshold_db=-60, hangover=30)
+        speech_timestamps, speech_activity = vad_power_thresholding(power, threshold_db=noise_power+5, hangover=20)
 
     # Onset
-    hard_onsets = get_hard_onsets(speech_timestamps, power)
+    hard_onsets = get_hard_onsets(speech_timestamps, power, threshold=4)
 
     # Phonation intervals
     i = 0

@@ -14,8 +14,8 @@ def signal_power(signal, frame_length, hop):
 def signal_power_db(signal, frame_length, hop):
     return 10 * np.log10(signal_power(signal, frame_length, hop))
 
-def speech_rate_estimate_power(power, zcr):
-    peaks_power = scipy.signal.find_peaks(power, height=-60, prominence=2)[0]
+def speech_rate_estimate_power(power, zcr, peak_th=-30):
+    peaks_power = scipy.signal.find_peaks(power, height=peak_th, prominence=2)[0]
     unvoiced_peaks_idxs = []
     for i, peak in enumerate(peaks_power):
         if zcr[peak] > 0.4:

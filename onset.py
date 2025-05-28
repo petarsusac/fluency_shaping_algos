@@ -26,18 +26,18 @@ def rise_slope(signal):
     else:
         return np.inf
 
-def get_hard_onsets(speech_timestamps, signal_power, treshold=10):
+def get_hard_onsets(speech_timestamps, signal_power, threshold=5):
     hard_onsets = []
     for timestamp in speech_timestamps:
         if (timestamp["start"] != 1):
             # TODO: choose padding and treshold
-            power_start = timestamp["start"] - 3
-            power_end = power_start + 10
+            power_start = timestamp["start"] - 6 # cca 100 ms
+            power_end = power_start + 30 # cca 500 ms
             if power_end < len(signal_power):
                 power_segment = signal_power[power_start:power_end]
                 if len(power_segment) > 0:
                     slope = rise_slope(power_segment)
-                    if slope > treshold:
+                    if slope > threshold:
                         hard_onsets.append(timestamp["start"])
 
     return hard_onsets
