@@ -22,11 +22,11 @@ def get_respiration_sample():
     try:
         acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z = map(float, line.split(','))
         line_is_valid = True
-        ahrs.update_no_magnetometer(np.array([gyro_x, gyro_y, gyro_z]), np.array([acc_x, acc_y, acc_z]), 1/10)
+        ahrs.update_no_magnetometer(np.array([gyro_x, gyro_y, gyro_z]), np.array([acc_x, acc_y, acc_z]), 1/12.5)
         x, y, z = ahrs.earth_acceleration
         y_filtered, zi = scipy.signal.sosfilt(sos, [y], zi=zi)
 
-        return y_filtered[0] * -2
+        return y_filtered[0] * 2
     except ValueError:
         return None
 
