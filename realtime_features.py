@@ -4,7 +4,7 @@ import librosa
 import scipy.signal
 import threading
 from vad import VADPowerThreshold
-from imu_respiration import imu_respiration_init, imu_respiration_cleanup, get_respiration_sample
+from imu_respiration import IMURespiration, IMUNotFoundError
 from onset import get_hard_onsets
 from speech_rate import signal_power_db, speech_rate_estimate_power
 from plot import Plot
@@ -26,7 +26,7 @@ def stop():
 
 def acq_respiration():
     while continue_recording:
-        respiration_sample = get_respiration_sample()
+        respiration_sample = imu.get_sample()
         if respiration_sample is not None:
             respiration_filtered.pop(0)
             respiration_filtered.append(respiration_sample)
@@ -59,9 +59,14 @@ def init_globals():
     global vad
     vad = VADPowerThreshold(threshold_db=0, hangover=20, start_idx=25)
 
-    global respiration_filtered, imu_present
+    global respiration_filtered, imu_present, imu
     respiration_filtered = [0.0] * FRAME_LEN_SEC * 10
-    imu_present = imu_respiration_init()
+    imu_present = True
+    try:
+        imu = IMURespiration()
+    except IMUNotFoundError:
+        print("IMU not found. Respiration acquisition will be skipped.")
+        imu_present = False
 
     global stop_thread, serial_thread
     stop_thread = threading.Thread(target=stop)
@@ -173,7 +178,7 @@ def main():
     stop_thread.join()
     if imu_present:
         serial_thread.join()
-    imu_respiration_cleanup()
+        imu.close()
 
 if __name__ == "__main__":
     main()
