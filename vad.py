@@ -1,44 +1,39 @@
-import silero_vad
 import numpy as np
 
-USE_SILERO = False
+class VAD:
+    def process(self, signal) -> tuple:
+        raise NotImplementedError("This method should be overridden by subclasses")
 
-if USE_SILERO:
-    vad = silero_vad.load_silero_vad()
+class VADPowerThreshold(VAD):
+    def __init__(self, threshold_db=-60, hangover=5, start_idx=25):
+        super().__init__()
+        self.threshold_db = threshold_db
+        self.hangover = hangover
+        self.start_idx = start_idx
 
-def vad_power_thresholding(signal_power_db, threshold_db=-60, hangover=5, start_idx=25):
-    speech_timestamps = []
-    power_thresholded = np.array(signal_power_db >= threshold_db).astype(int)
-    power_thresholded_hangover = np.zeros(len(power_thresholded))
-    for i in range(start_idx, len(power_thresholded)):
-        if power_thresholded[i - min(i, hangover):i].any():
-            power_thresholded_hangover[i] = 1
-        else:
-            power_thresholded_hangover[i] = 0
+    def process(self, signal_power_db):
+        speech_timestamps = []
+        power_thresholded = np.array(signal_power_db >= self.threshold_db).astype(int)
+        power_thresholded_hangover = np.zeros(len(power_thresholded))
+        for i in range(self.start_idx, len(power_thresholded)):
+            if power_thresholded[i - min(i, self.hangover):i].any():
+                power_thresholded_hangover[i] = 1
+            else:
+                power_thresholded_hangover[i] = 0
 
-    start = -1
-    end = -1
-    for i in range(0, len(power_thresholded)):
-        if (power_thresholded_hangover[i] == 1 and i == 0):
-            start = i
-        elif i != 0 and (power_thresholded_hangover[i] == 1 and power_thresholded_hangover[i - 1] == 0):
-            start = i
-        
-        if i != 0 and ((power_thresholded_hangover[i] == 0 and power_thresholded_hangover[i - 1] == 1) 
-                       or (power_thresholded_hangover[i] == 1 and i == len(power_thresholded_hangover) - 1)):
-            end = i
-            speech_timestamps.append({"start": start, "end": end})
-    return speech_timestamps, power_thresholded_hangover
-
-def vad_silero(audio, signal_power_len, proc_hop_len):
-    if not USE_SILERO:
-        raise ValueError("Silero VAD is disabled. Set USE_SILERO to True")
+        start = -1
+        end = -1
+        for i in range(0, len(power_thresholded)):
+            if (power_thresholded_hangover[i] == 1 and i == 0):
+                start = i
+            elif i != 0 and (power_thresholded_hangover[i] == 1 and power_thresholded_hangover[i - 1] == 0):
+                start = i
+            
+            if i != 0 and ((power_thresholded_hangover[i] == 0 and power_thresholded_hangover[i - 1] == 1) 
+                        or (power_thresholded_hangover[i] == 1 and i == len(power_thresholded_hangover) - 1)):
+                end = i
+                speech_timestamps.append({"start": start, "end": end})
+        return speech_timestamps, power_thresholded_hangover
     
-    speech_timestamps = silero_vad.get_speech_timestamps(audio, vad, min_silence_duration_ms=500, threshold=0.3)
-    speech_activity = np.zeros(signal_power_len)
-    for timestamp in speech_timestamps:
-        timestamp['start'] = timestamp['start'] // proc_hop_len
-        timestamp['end'] = timestamp['end'] // proc_hop_len
-        speech_activity[timestamp['start']:timestamp['end']] = 1
-
-    return speech_timestamps, speech_activity
+    def set_threshold(self, threshold_db):
+        self.threshold_db = threshold_db

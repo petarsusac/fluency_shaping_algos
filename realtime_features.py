@@ -3,7 +3,7 @@ import pyaudio
 import librosa
 import scipy.signal
 import threading
-from vad import vad_silero, vad_power_thresholding, USE_SILERO
+from vad import VADPowerThreshold
 from imu_respiration import imu_respiration_init, imu_respiration_cleanup, get_respiration_sample
 from onset import get_hard_onsets
 from speech_rate import signal_power_db, speech_rate_estimate_power
@@ -56,6 +56,9 @@ def init_globals():
     hard_onsets = []
     phonation_intervals = []
 
+    global vad
+    vad = VADPowerThreshold(threshold_db=0, hangover=20, start_idx=25)
+
     global respiration_filtered, imu_present
     respiration_filtered = [0.0] * FRAME_LEN_SEC * 10
     imu_present = imu_respiration_init()
@@ -101,25 +104,13 @@ def audio_process(in_data, frame_count, time_info, status):
     if chunk_idx == 4:
         # Estimate noise power from the first 4 chunks (2 seconds)
         noise_power = np.mean(np.concatenate(chunks_power[-4:]))
+        vad.set_threshold(noise_power + 10)
 
     speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+10)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
-    if USE_SILERO:
-        num_syllables = 0
-        speech_duration_s = FRAME_LEN_SEC
-        speech_timestamps, speech_activity = vad_silero(audio_frame, len(power), PROC_HOP_LEN)
-        for peak in speech_rate_estimate['peaks']:
-            for timestamp in speech_timestamps:
-                if peak >= timestamp['start'] and peak <= timestamp['end']:
-                    num_syllables += 1
-        if speech_duration_s > 0:
-            speech_rate = num_syllables / speech_duration_s * 60
-        else:
-            speech_rate = 0
-    else:
-        speech_rate = speech_rate_estimate["num_syllables"] * (60 // FRAME_LEN_SEC)
-        speech_timestamps, speech_activity = vad_power_thresholding(power, threshold_db=noise_power+10, hangover=20)
+    speech_rate = speech_rate_estimate["num_syllables"] * (60 // FRAME_LEN_SEC)
+    speech_timestamps, speech_activity = vad.process(power)
 
     # Onset
     hard_onsets = get_hard_onsets(speech_timestamps, power, threshold=4)
