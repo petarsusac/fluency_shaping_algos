@@ -7,7 +7,7 @@ from vad import VADPowerThreshold
 from imu_respiration import IMURespiration, IMUNotFoundError
 from onset import get_hard_onsets
 from speech_rate import signal_power_db, speech_rate_estimate_power
-from plot import Plot
+from plot import Plot, PlotData
 from queue import Queue
 
 PROC_FRAME_LEN=1024
@@ -76,15 +76,17 @@ def init_globals():
         serial_thread = threading.Thread(target=acq_respiration)
         serial_thread.start()
 
-    plot_init_data = {
-        "rate_list": rate_list,
-        "power": power,
-        "speech_activity": speech_activity,
-        "speech_rate_estimate": speech_rate_estimate,
-        "zcr": zcr,
-        "respiration_filtered": respiration_filtered,
-        "zcr_threshold": ZCR_THRESHOLD
-    }
+    plot_init_data = PlotData(
+        rate_list=smoothed_rate_list,
+        power=power,
+        speech_activity=speech_activity,
+        speech_rate_estimate=speech_rate_estimate,
+        zcr=zcr,
+        zcr_threshold=ZCR_THRESHOLD,
+        hard_onsets=hard_onsets,
+        phonation_intervals=phonation_intervals,
+        respiration_filtered=respiration_filtered
+    )
 
     global plot
     plot = Plot(plot_init_data)
@@ -140,16 +142,16 @@ def audio_process(in_data, frame_count, time_info, status):
     smoothed_rate_list.pop(0)
     smoothed_rate_list.append(smoothed_speech_rate)
 
-    plotting_data = {
-        "rate_list": smoothed_rate_list,
-        "power": power,
-        "speech_activity": speech_activity,
-        "speech_rate_estimate": speech_rate_estimate,
-        "zcr": zcr,
-        "respiration_filtered": respiration_filtered,
-        "hard_onsets": hard_onsets,
-        "phonation_intervals": phonation_intervals
-    }
+    plotting_data = PlotData(
+        rate_list=smoothed_rate_list,
+        power=power,
+        speech_activity=speech_activity,
+        speech_rate_estimate=speech_rate_estimate,
+        zcr=zcr,
+        hard_onsets=hard_onsets,
+        phonation_intervals=phonation_intervals,
+        respiration_filtered=respiration_filtered
+    )
 
     plotting_queue.put_nowait(plotting_data)
 
