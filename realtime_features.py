@@ -1,16 +1,14 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import pyaudio
 import librosa
-import matplotlib
 import scipy.signal
 import threading
 from vad import vad_silero, vad_power_thresholding, USE_SILERO
 from imu_respiration import imu_respiration_init, imu_respiration_cleanup, get_respiration_sample
 from onset import get_hard_onsets
 from speech_rate import signal_power_db, speech_rate_estimate_power
-
-matplotlib.use('TkAgg')
+from plot import Plot
+from queue import Queue
 
 PROC_FRAME_LEN=1024
 PROC_HOP_LEN=256
@@ -35,12 +33,10 @@ def acq_respiration():
 
 
 def init_globals():
-    global continue_recording, chunk_idx
-    global chunks, chunks_power, noise_power, chunks_zcr, rate_list, smoothed_rate_list, zcr_b, zcr_a, audio_hp_b, audio_hp_a, pow_lp_b, pow_lp_a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
-    global fig, line1, line2, line3, line2_peaks, line2_vertical_lines, line2_activity, line3_vertical_lines, line4, line4_activity, ax1, ax2, ax3, ax4
-    global ser, ahrs, respiration_filtered
-    global stop_thread, serial_thread, imu_present
+    global plotting_queue
+    plotting_queue = Queue()
 
+    global continue_recording, chunk_idx, chunks, chunks_power, noise_power, chunks_zcr, rate_list, smoothed_rate_list, zcr_b, zcr_a, audio_hp_b, audio_hp_a, pow_lp_b, pow_lp_a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
     continue_recording = True
     chunk_idx = 0
     noise_power = 0
@@ -59,9 +55,12 @@ def init_globals():
     speech_activity = np.zeros(len(power))
     hard_onsets = []
     phonation_intervals = []
+
+    global respiration_filtered, imu_present
     respiration_filtered = [0.0] * FRAME_LEN_SEC * 10
     imu_present = imu_respiration_init()
 
+    global stop_thread, serial_thread
     stop_thread = threading.Thread(target=stop)
     stop_thread.start()
 
@@ -69,38 +68,21 @@ def init_globals():
         serial_thread = threading.Thread(target=acq_respiration)
         serial_thread.start()
 
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
-    line1, = ax1.plot(rate_list, color="C0")
-    line2, = ax2.plot(power, color="C0")
-    line2_activity, = ax2.step(np.arange(len(speech_activity)), speech_activity, color='k')
-    line2_peaks, = ax2.plot(speech_rate_estimate["peaks"], power[speech_rate_estimate["peaks"]], 'ro')
-    line2_vertical_lines = []
-    line3, = ax3.plot(zcr, color="C0")
-    line3_vertical_lines = []
-    line4, = ax4.plot(respiration_filtered)
-    line4_activity, = ax4.step(np.arange(len(speech_activity)) / (len(speech_activity) / len(respiration_filtered)), speech_activity, color='k')
-    ax1.set_ylim(0, 300)
-    ax2.set_ylim(-80, 5)
-    ax2.set_xlim(0, len(power))
-    ax3.set_ylim(0, 0.4)
-    ax1.set_title('Speech rate (syllables/min)')
-    ax2.set_title('Signal power (dB)')
-    ax3.set_title('Zero crossing rate (voicedness)')
-    ax3.axhline(y=ZCR_THRESHOLD, color="black", linestyle='--')
-    ax3.set_xlabel('Time (s)')
-    ax1.set_ylabel('Syllables/min')
-    ax2.set_ylabel('Power (dB)')
-    ax3.set_ylabel('ZCR')
-    ax4.set_title('Respiration')
-    ax4.set_ylim(-1, 1)
-    ax4.set_xlim(0, len(respiration_filtered))
+    plot_init_data = {
+        "rate_list": rate_list,
+        "power": power,
+        "speech_activity": speech_activity,
+        "speech_rate_estimate": speech_rate_estimate,
+        "zcr": zcr,
+        "respiration_filtered": respiration_filtered,
+        "zcr_threshold": ZCR_THRESHOLD
+    }
 
-    plt.show(block=False)
+    global plot
+    plot = Plot(plot_init_data)
 
 def audio_process(in_data, frame_count, time_info, status):
-    global chunks, rate_list, smoothed_rate_list, speech_rate_estimate, speech_timestamps, speech_activity, zcr, hard_onsets, phonation_intervals, power, zcr
     global chunk_idx, noise_power
-
     chunk_idx += 1
     chunk = np.frombuffer(in_data, dtype=np.float32)
     chunks.pop(0)
@@ -122,8 +104,6 @@ def audio_process(in_data, frame_count, time_info, status):
 
     speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+10)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
-    hard_onsets = []
-    phonation_intervals=[]
 
     if USE_SILERO:
         num_syllables = 0
@@ -145,6 +125,7 @@ def audio_process(in_data, frame_count, time_info, status):
     hard_onsets = get_hard_onsets(speech_timestamps, power, threshold=4)
 
     # Phonation intervals
+    phonation_intervals=[]
     i = 0
     while i < len(zcr):
         j = i + 1
@@ -163,44 +144,24 @@ def audio_process(in_data, frame_count, time_info, status):
     smoothed_rate_list.pop(0)
     smoothed_rate_list.append(smoothed_speech_rate)
 
+    plotting_data = {
+        "rate_list": smoothed_rate_list,
+        "power": power,
+        "speech_activity": speech_activity,
+        "speech_rate_estimate": speech_rate_estimate,
+        "zcr": zcr,
+        "respiration_filtered": respiration_filtered,
+        "hard_onsets": hard_onsets,
+        "phonation_intervals": phonation_intervals
+    }
+
+    plotting_queue.put_nowait(plotting_data)
+
     if not continue_recording:
         return (None, pyaudio.paComplete)
     return (in_data, pyaudio.paContinue)
 
-def update_plot():
-    global fig, line1, line2, line3, line2_peaks, line2_vertical_lines, line2_activity, line3_vertical_lines, line4, ax1, ax2, ax3
-    global smoothed_rate_list, speech_rate_estimate, zcr, hard_onsets, phonation_intervals
-    
-    line1.set_ydata(smoothed_rate_list)
-        
-    for line in line2_vertical_lines:
-        line.remove()
-    line2_vertical_lines = []
-    line2.set_ydata(power)
-    line2_activity.set_ydata(speech_activity * 80 - 80)
-    line2_peaks.set_data(speech_rate_estimate["peaks"], power[speech_rate_estimate["peaks"]])
-    for onset in hard_onsets:
-        line2_vertical_lines.append(ax2.axvline(x=onset, color='r'))
-
-    line3.set_ydata(zcr)
-    for line in line3_vertical_lines:
-        line.remove()
-    line3_vertical_lines = []
-    for interval in phonation_intervals:
-        if (interval[1] - interval[0]) < 20:
-            line3_vertical_lines.append(ax3.axvspan(interval[0], interval[1], color='r', alpha=0.2))
-        else:
-            line3_vertical_lines.append(ax3.axvspan(interval[0], interval[1], color='g', alpha=0.2))
-
-    line4.set_ydata(respiration_filtered)
-    line4_activity.set_ydata(speech_activity * 2 - 1)
-
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-
 def main():
-    global continue_recording
-
     init_globals()
 
     p = pyaudio.PyAudio()
@@ -212,13 +173,12 @@ def main():
                     stream_callback=audio_process)
 
     while(continue_recording):
-        update_plot()
-        
+        plot.update(plotting_queue.get())
     
     stream.stop_stream()
     stream.close()
     p.terminate()
-    plt.close()
+    plot.close()
     stop_thread.join()
     if imu_present:
         serial_thread.join()
