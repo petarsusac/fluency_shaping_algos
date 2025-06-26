@@ -6,11 +6,11 @@ USE_SILERO = False
 if USE_SILERO:
     vad = silero_vad.load_silero_vad()
 
-def vad_power_thresholding(signal_power_db, threshold_db=-60, hangover=5):
+def vad_power_thresholding(signal_power_db, threshold_db=-60, hangover=5, start_idx=25):
     speech_timestamps = []
     power_thresholded = np.array(signal_power_db >= threshold_db).astype(int)
     power_thresholded_hangover = np.zeros(len(power_thresholded))
-    for i in range(1, len(power_thresholded)):
+    for i in range(start_idx, len(power_thresholded)):
         if power_thresholded[i - min(i, hangover):i].any():
             power_thresholded_hangover[i] = 1
         else:

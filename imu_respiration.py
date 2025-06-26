@@ -26,7 +26,7 @@ def get_respiration_sample():
         x, y, z = ahrs.earth_acceleration
         y_filtered, zi = scipy.signal.sosfilt(sos, [y], zi=zi)
 
-        return y_filtered[0] * 2
+        return y_filtered[0] * -2
     except ValueError:
         return None
 
