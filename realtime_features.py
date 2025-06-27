@@ -98,7 +98,6 @@ def audio_process(in_data, frame_count, time_info, status):
     chunks.pop(0)
     chunks.append(chunk)
     chunk = scipy.signal.lfilter(audio_hp_b, audio_hp_a, chunk)
-    audio_frame = np.concatenate(chunks)
     
     chunks_power.pop(0)
     chunks_power.append(signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
