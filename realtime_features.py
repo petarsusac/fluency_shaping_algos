@@ -47,7 +47,7 @@ def init_globals():
     zcr = np.concatenate(chunks_zcr)
     zcr_b, zcr_a = scipy.signal.butter(4, 0.5, 'low')
     audio_hp_b, audio_hp_a = scipy.signal.butter(4, Wn=100, fs=16000, btype='high')
-    pow_lp_b, pow_lp_a = scipy.signal.butter(4, Wn=0.15, btype='low')
+    pow_lp_b, pow_lp_a = scipy.signal.butter(4, Wn=0.5, btype='low')
     rate_list = [0] * 20
     smoothed_rate_list = [0] * 20
     speech_rate_estimate = speech_rate_estimate_power(power, zcr)
@@ -97,7 +97,7 @@ def audio_process(in_data, frame_count, time_info, status):
     chunk = np.frombuffer(in_data, dtype=np.float32)
     chunks.pop(0)
     chunks.append(chunk)
-    chunk = scipy.signal.lfilter(audio_hp_b, audio_hp_a, chunk)
+    chunk = scipy.signal.filtfilt(audio_hp_b, audio_hp_a, chunk)
     
     chunks_power.pop(0)
     chunks_power.append(signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
@@ -110,9 +110,9 @@ def audio_process(in_data, frame_count, time_info, status):
     if chunk_idx == 4:
         # Estimate noise power from the first 4 chunks (2 seconds)
         noise_power = np.mean(np.concatenate(chunks_power[-4:]))
-        vad.set_threshold(noise_power + 10)
+        vad.set_threshold(noise_power + 5)
 
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+10)
+    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+5)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
     speech_rate = speech_rate_estimate["num_syllables"] * (60 // FRAME_LEN_SEC)
