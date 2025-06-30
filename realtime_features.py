@@ -57,7 +57,7 @@ def init_globals():
     phonation_intervals = []
 
     global vad
-    vad = VADPowerThreshold(threshold_db=0, hangover=20, start_idx=25)
+    vad = VADPowerThreshold(threshold_db=0)
 
     global respiration_filtered, imu_present, imu
     respiration_filtered = [0.0] * FRAME_LEN_SEC * 10
