@@ -5,7 +5,7 @@ class VAD:
         raise NotImplementedError("This method should be overridden by subclasses")
 
 class VADPowerThreshold(VAD):
-    def __init__(self, threshold_db=-60, min_speech_duration=5, padding=20):
+    def __init__(self, threshold_db=-60, min_speech_duration=5, padding=30):
         super().__init__()
         self.threshold_db = threshold_db
         self.min_speech_duration = min_speech_duration
@@ -27,10 +27,10 @@ class VADPowerThreshold(VAD):
 
         # Merge adjacent segments
         for i in range(0, len(power_thresholded), self.padding):
-            if i + self.padding < len(power_thresholded):
-                segment = power_thresholded[i:i + self.padding]
-                if np.any(segment == 1):
-                    power_thresholded[i:i + self.padding] = 1
+            # if i + self.padding < len(power_thresholded):
+            segment = power_thresholded[i:i + self.padding]
+            if np.any(segment == 1):
+                power_thresholded[i:i + self.padding] = 1
 
         start = -1
         end = -1

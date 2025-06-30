@@ -115,8 +115,12 @@ def audio_process(in_data, frame_count, time_info, status):
     speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+5)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
-    speech_rate = speech_rate_estimate["num_syllables"] * (60 // FRAME_LEN_SEC)
     speech_timestamps, speech_activity = vad.process(power)
+    num_syllables = np.sum(speech_activity[speech_rate_estimate["peaks"]])
+    if (np.sum(speech_activity) > 0):
+        speech_rate = num_syllables / (FRAME_LEN_SEC * (np.sum(speech_activity) / len(speech_activity))) * 60  # syllables per minute
+    else:
+        speech_rate = 0
 
     # Onset
     hard_onsets = get_hard_onsets(speech_timestamps, power, threshold=4)
@@ -136,10 +140,10 @@ def audio_process(in_data, frame_count, time_info, status):
     rate_list.append(speech_rate)
 
     # Moving average filter
-    window_size = 3
-    smoothed_speech_rate = np.convolve(rate_list[-window_size:], np.ones(window_size)/window_size, mode='valid')[0]
+    # window_size = 3
+    # smoothed_speech_rate = np.convolve(rate_list[-window_size:], np.ones(window_size)/window_size, mode='valid')[0]
     smoothed_rate_list.pop(0)
-    smoothed_rate_list.append(smoothed_speech_rate)
+    smoothed_rate_list.append(speech_rate)
 
     plotting_data = PlotData(
         rate_list=smoothed_rate_list,
