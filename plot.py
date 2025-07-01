@@ -36,7 +36,7 @@ class Plot():
         self.line2_vertical_lines = []
         self.line3, = self.ax3.plot(dummy_data.respiration_filtered)
         self.line3_activity, = self.ax3.step(np.arange(len(dummy_data.speech_activity)) / (len(dummy_data.speech_activity) / len(dummy_data.respiration_filtered)), dummy_data.speech_activity, color='k')
-        self.ax1.set_ylim(-80, 5)
+        self.ax1.set_ylim(0, 0.0005)
         self.ax1.set_xlim(0, len(dummy_data.power))
         self.ax2.set_ylim(0, 0.4)
         self.fig.suptitle(f'Speech rate: {dummy_data.rate_list[-1]} syllables/min')
@@ -59,7 +59,7 @@ class Plot():
             line.remove()
         self.line1_vertical_lines = []
         self.line1.set_ydata(data.power)
-        self.line1_activity.set_ydata(data.speech_activity * 80 - 80)
+        self.line1_activity.set_ydata(data.speech_activity * 0.0004)
         self.line1_peaks.set_data(data.speech_rate_estimate["peaks"], data.power[data.speech_rate_estimate["peaks"]])
         for onset in data.hard_onsets:
             self.line1_vertical_lines.append(self.ax1.axvline(x=onset, color='r'))

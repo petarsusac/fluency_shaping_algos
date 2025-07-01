@@ -6,7 +6,7 @@ import threading
 from vad import VADPowerThreshold
 from imu_respiration import IMURespiration, IMUNotFoundError
 from onset import get_hard_onsets
-from speech_rate import signal_power_db, speech_rate_estimate_power
+from speech_rate import signal_power, speech_rate_estimate_power
 from plot import Plot, PlotData
 from queue import Queue
 
@@ -41,13 +41,13 @@ def init_globals():
     chunk_idx = 0
     noise_power = 0
     chunks = [np.zeros(CHUNK) for _ in range((FRAME_LEN_SEC * RATE) // CHUNK)]
-    chunks_power = [signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
+    chunks_power = [signal_power(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
     chunks_zcr = [librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0] for chunk in chunks]
     power = np.concatenate(chunks_power)
     zcr = np.concatenate(chunks_zcr)
     zcr_b, zcr_a = scipy.signal.butter(4, 0.5, 'low')
     audio_hp_b, audio_hp_a = scipy.signal.butter(4, Wn=100, fs=16000, btype='high')
-    pow_lp_b, pow_lp_a = scipy.signal.butter(4, Wn=0.5, btype='low')
+    pow_lp_b, pow_lp_a = scipy.signal.butter(4, Wn=0.3, btype='low')
     rate_list = [0] * 20
     smoothed_rate_list = [0] * 20
     speech_rate_estimate = speech_rate_estimate_power(power, zcr)
@@ -100,7 +100,7 @@ def audio_process(in_data, frame_count, time_info, status):
     chunk = scipy.signal.filtfilt(audio_hp_b, audio_hp_a, chunk)
     
     chunks_power.pop(0)
-    chunks_power.append(signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
+    chunks_power.append(signal_power(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
     chunks_zcr.pop(0)
     chunks_zcr.append(librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0])
 
@@ -110,15 +110,15 @@ def audio_process(in_data, frame_count, time_info, status):
     if chunk_idx == 4:
         # Estimate noise power from the first 4 chunks (2 seconds)
         noise_power = np.mean(np.concatenate(chunks_power[-4:]))
-        vad.set_threshold(noise_power + 5)
+        vad.set_threshold(noise_power + 1e-5)
 
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+5)
+    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=(noise_power+1e-5, noise_power+5e-4), peak_prominence=5e-6)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
     speech_timestamps, speech_activity = vad.process(power)
     num_syllables = np.sum(speech_activity[speech_rate_estimate["peaks"]])
     if (np.sum(speech_activity) > 0):
-        speech_rate = num_syllables / (FRAME_LEN_SEC * (np.sum(speech_activity) / len(speech_activity))) * 60  # syllables per minute
+        speech_rate = num_syllables * (60 / FRAME_LEN_SEC)
     else:
         speech_rate = 0
 
