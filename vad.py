@@ -5,15 +5,15 @@ class VAD:
         raise NotImplementedError("This method should be overridden by subclasses")
 
 class VADPowerThreshold(VAD):
-    def __init__(self, threshold_db=-60, min_speech_duration=5, padding=30):
+    def __init__(self, threshold=-60, min_speech_duration=5, padding=30):
         super().__init__()
-        self.threshold_db = threshold_db
+        self.threshold = threshold
         self.min_speech_duration = min_speech_duration
         self.padding = padding
 
-    def process(self, signal_power_db):
+    def process(self, signal_power):
         speech_timestamps = []
-        power_thresholded = np.array(signal_power_db >= self.threshold_db).astype(int)
+        power_thresholded = np.array(signal_power >= self.threshold).astype(int)
 
         # Remove short segments
         for i in range(len(power_thresholded)):
@@ -46,5 +46,5 @@ class VADPowerThreshold(VAD):
                 speech_timestamps.append({"start": start, "end": end})
         return speech_timestamps, power_thresholded
     
-    def set_threshold(self, threshold_db):
-        self.threshold_db = threshold_db
+    def set_threshold(self, threshold):
+        self.threshold = threshold

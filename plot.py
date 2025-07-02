@@ -23,11 +23,13 @@ class PlotData:
         self.phonation_intervals = phonation_intervals
         self.respiration_filtered = respiration_filtered
 
+from speech_warnings import speech_rate_warning, phonation_warning
+
 class Plot():
     def __init__(self, dummy_data: PlotData):
         matplotlib.use('TkAgg')
 
-        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1)
+        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(20, 16))
         self.line1, = self.ax1.plot(dummy_data.power, color="C0")
         self.line1_activity, = self.ax1.step(np.arange(len(dummy_data.speech_activity)), dummy_data.speech_activity, color='k')
         self.line1_peaks, = self.ax1.plot(dummy_data.speech_rate_estimate["peaks"], dummy_data.power[dummy_data.speech_rate_estimate["peaks"]], 'ro')
@@ -35,8 +37,7 @@ class Plot():
         self.line2, = self.ax2.plot(dummy_data.zcr, color="C0")
         self.line2_vertical_lines = []
         self.line3, = self.ax3.plot(dummy_data.respiration_filtered)
-        self.line3_activity, = self.ax3.step(np.arange(len(dummy_data.speech_activity)) / (len(dummy_data.speech_activity) / len(dummy_data.respiration_filtered)), dummy_data.speech_activity, color='k')
-        self.ax1.set_ylim(0, 0.0005)
+        self.ax1.set_ylim(0, 3e-3)
         self.ax1.set_xlim(0, len(dummy_data.power))
         self.ax2.set_ylim(0, 0.4)
         self.fig.suptitle(f'Speech rate: {dummy_data.rate_list[-1]} syllables/min')
@@ -50,6 +51,10 @@ class Plot():
         self.ax3.set_ylim(-1, 1)
         self.ax3.set_xlim(0, len(dummy_data.respiration_filtered))
 
+        self.text1 = self.fig.text(0.2, 0.025, "SPEECH RATE", fontsize=16, color='gray', fontweight='bold')
+        self.text2 = self.fig.text(0.5, 0.025, "PHONATION", fontsize=16, color='gray', fontweight='bold')
+        self.text3 = self.fig.text(0.8, 0.025, "BREATHING", fontsize=16, color='gray', fontweight='bold')
+
         plt.show(block=False)
 
     def update(self, data: PlotData):
@@ -59,7 +64,7 @@ class Plot():
             line.remove()
         self.line1_vertical_lines = []
         self.line1.set_ydata(data.power)
-        self.line1_activity.set_ydata(data.speech_activity * 0.0004)
+        self.line1_activity.set_ydata(data.speech_activity * (self.ax1.get_ylim()[1] - 0.01 * self.ax1.get_ylim()[1]))
         self.line1_peaks.set_data(data.speech_rate_estimate["peaks"], data.power[data.speech_rate_estimate["peaks"]])
         for onset in data.hard_onsets:
             self.line1_vertical_lines.append(self.ax1.axvline(x=onset, color='r'))
@@ -75,7 +80,16 @@ class Plot():
                 self.line2_vertical_lines.append(self.ax2.axvspan(interval[0], interval[1], color='g', alpha=0.2))
 
         self.line3.set_ydata(data.respiration_filtered)
-        self.line3_activity.set_ydata(data.speech_activity * 2 - 1)
+
+        if (speech_rate_warning(data, threshold_rate=150, threshold_frames=3)):
+            self.text1.set_color('red')
+        else:
+            self.text1.set_color('gray')
+
+        if (phonation_warning(data, threshold_duration=20, threshold_num=2)):
+            self.text2.set_color('red')
+        else:
+            self.text2.set_color('gray')
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()

@@ -10,7 +10,7 @@ class IMUNotFoundError(Exception):
 class IMURespiration:
     SERIAL_PORT = '/dev/ttyACM0'
     SAMPLE_RATE = 12.5
-    CUTOFF_FREQ = 1
+    CUTOFF_FREQ = 0.5
 
     def __init__(self):
         self.ahrs = imufusion.Ahrs()

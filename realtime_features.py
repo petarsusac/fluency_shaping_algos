@@ -48,8 +48,8 @@ def init_globals():
     zcr_b, zcr_a = scipy.signal.butter(4, 0.5, 'low')
     audio_hp_b, audio_hp_a = scipy.signal.butter(4, Wn=100, fs=16000, btype='high')
     pow_lp_b, pow_lp_a = scipy.signal.butter(4, Wn=0.3, btype='low')
-    rate_list = [0] * 20
-    smoothed_rate_list = [0] * 20
+    rate_list = [0] * 10
+    smoothed_rate_list = [0] * 10
     speech_rate_estimate = speech_rate_estimate_power(power, zcr)
     speech_timestamps = []
     speech_activity = np.zeros(len(power))
@@ -57,7 +57,7 @@ def init_globals():
     phonation_intervals = []
 
     global vad
-    vad = VADPowerThreshold(threshold_db=0)
+    vad = VADPowerThreshold(threshold=100)
 
     global respiration_filtered, imu_present, imu
     respiration_filtered = [0.0] * FRAME_LEN_SEC * 10
@@ -112,7 +112,7 @@ def audio_process(in_data, frame_count, time_info, status):
         noise_power = np.mean(np.concatenate(chunks_power[-4:]))
         vad.set_threshold(noise_power + 1e-5)
 
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=(noise_power+1e-5, noise_power+5e-4), peak_prominence=5e-6)
+    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=(noise_power+1e-5, noise_power+3e-3), peak_prominence=5e-6)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
     speech_timestamps, speech_activity = vad.process(power)
