@@ -30,7 +30,7 @@ class IMURespiration:
             _, y, _ = self.ahrs.earth_acceleration
             y_filtered, self.zi = scipy.signal.sosfilt(self.sos, [y], zi=self.zi)
 
-            return y_filtered[0] * -2
+            return y_filtered[0]
         except ValueError:
             return None
 

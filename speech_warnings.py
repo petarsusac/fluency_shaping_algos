@@ -1,7 +1,7 @@
 from plot import PlotData
 import numpy as np
 
-def speech_rate_warning(features: PlotData, threshold_rate=150, threshold_frames=3):
+def speech_rate_warning(features: PlotData, threshold_rate=120, threshold_frames=3):
     rate_list = np.array(features.rate_list)
     if len(rate_list) > 0:
         if np.sum(rate_list > threshold_rate) >= threshold_frames:

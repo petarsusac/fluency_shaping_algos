@@ -6,7 +6,7 @@ import threading
 from vad import VADPowerThreshold
 from imu_respiration import IMURespiration, IMUNotFoundError
 from onset import get_hard_onsets
-from speech_rate import signal_power, speech_rate_estimate_power
+from speech_rate import signal_power_db, speech_rate_estimate_power
 from plot import Plot, PlotData
 from queue import Queue
 
@@ -41,7 +41,7 @@ def init_globals():
     chunk_idx = 0
     noise_power = 0
     chunks = [np.zeros(CHUNK) for _ in range((FRAME_LEN_SEC * RATE) // CHUNK)]
-    chunks_power = [signal_power(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
+    chunks_power = [signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
     chunks_zcr = [librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0] for chunk in chunks]
     power = np.concatenate(chunks_power)
     zcr = np.concatenate(chunks_zcr)
@@ -100,7 +100,7 @@ def audio_process(in_data, frame_count, time_info, status):
     chunk = scipy.signal.filtfilt(audio_hp_b, audio_hp_a, chunk)
     
     chunks_power.pop(0)
-    chunks_power.append(signal_power(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
+    chunks_power.append(signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
     chunks_zcr.pop(0)
     chunks_zcr.append(librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0])
 
@@ -110,9 +110,10 @@ def audio_process(in_data, frame_count, time_info, status):
     if chunk_idx == 4:
         # Estimate noise power from the first 4 chunks (2 seconds)
         noise_power = np.mean(np.concatenate(chunks_power[-4:]))
-        vad.set_threshold(noise_power + 1e-5)
+        vad.set_threshold(noise_power + 5)
+        print(f"Noise power estimated: {noise_power:.2f} dB")
 
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=(noise_power+1e-5, noise_power+3e-3), peak_prominence=5e-6)
+    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+5, peak_prominence=1)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
     speech_timestamps, speech_activity = vad.process(power)
