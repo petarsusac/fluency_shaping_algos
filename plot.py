@@ -37,7 +37,7 @@ class Plot():
         self.line2, = self.ax2.plot(dummy_data.zcr, color="C0")
         self.line2_vertical_lines = []
         self.line3, = self.ax3.plot(dummy_data.respiration_filtered)
-        self.ax1.set_ylim(-80, 0)
+        self.ax1.set_ylim(0, 100)
         self.ax1.set_xlim(0, len(dummy_data.power))
         self.ax2.set_ylim(0, 0.4)
         self.fig.suptitle(f'Speech rate: {dummy_data.rate_list[-1]} syllables/min')

@@ -8,7 +8,7 @@ def signal_power(signal, frame_length, hop):
         frame_idx = i // hop
         if len(frame) < frame_length:
             break
-        power[frame_idx] = np.sum(frame ** 2) / frame_length
+        power[frame_idx] = np.sum((frame / 2e-5) ** 2) / frame_length
     return power
 
 def signal_power_db(signal, frame_length, hop):
@@ -24,13 +24,8 @@ def signal_amplitude(signal, frame_length, hop):
         amplitude[frame_idx] = np.sum(np.abs(frame))
     return amplitude
 
-def speech_rate_estimate_power(power, zcr, peak_th=-40, peak_prominence=2):
+def speech_rate_estimate_power(power, peak_th=-40, peak_prominence=2):
     peaks_power = scipy.signal.find_peaks(power, height=peak_th, prominence=peak_prominence)[0]
-    unvoiced_peaks_idxs = []
-    for i, peak in enumerate(peaks_power):
-        if zcr[peak] > 0.1:
-            unvoiced_peaks_idxs.append(i)
-    peaks_power = np.delete(peaks_power, unvoiced_peaks_idxs)
     return {
         "num_syllables": peaks_power.shape[0],
         "peaks": peaks_power,

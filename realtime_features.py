@@ -10,7 +10,7 @@ from speech_rate import signal_power_db, speech_rate_estimate_power
 from plot import Plot, PlotData
 from queue import Queue
 
-PROC_FRAME_LEN=1024
+PROC_FRAME_LEN=2048
 PROC_HOP_LEN=256
 FRAME_LEN_SEC=5
 ZCR_THRESHOLD = 0.15
@@ -36,21 +36,18 @@ def init_globals():
     global plotting_queue
     plotting_queue = Queue()
 
-    global continue_recording, chunk_idx, chunks, chunks_power, noise_power, chunks_zcr, rate_list, smoothed_rate_list, zcr_b, zcr_a, audio_hp_b, audio_hp_a, pow_lp_b, pow_lp_a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
+    global continue_recording, chunk_idx, chunks, noise_power, rate_list, smoothed_rate_list, zcr_b, zcr_a, audio_hp_b, audio_hp_a, speech_rate_estimate, speech_timestamps, speech_activity, power, zcr, hard_onsets, phonation_intervals
     continue_recording = True
     chunk_idx = 0
-    noise_power = 0
+    noise_power = 100
     chunks = [np.zeros(CHUNK) for _ in range((FRAME_LEN_SEC * RATE) // CHUNK)]
-    chunks_power = [signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN) for chunk in chunks]
-    chunks_zcr = [librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0] for chunk in chunks]
-    power = np.concatenate(chunks_power)
-    zcr = np.concatenate(chunks_zcr)
+    power = signal_power_db(np.concatenate(chunks), frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN)
+    zcr = librosa.feature.zero_crossing_rate(y=np.concatenate(chunks), frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0]
     zcr_b, zcr_a = scipy.signal.butter(4, 0.5, 'low')
     audio_hp_b, audio_hp_a = scipy.signal.butter(4, Wn=100, fs=16000, btype='high')
-    pow_lp_b, pow_lp_a = scipy.signal.butter(4, Wn=0.3, btype='low')
     rate_list = [0] * 10
     smoothed_rate_list = [0] * 10
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr)
+    speech_rate_estimate = speech_rate_estimate_power(power)
     speech_timestamps = []
     speech_activity = np.zeros(len(power))
     hard_onsets = []
@@ -97,23 +94,18 @@ def audio_process(in_data, frame_count, time_info, status):
     chunk = np.frombuffer(in_data, dtype=np.float32)
     chunks.pop(0)
     chunks.append(chunk)
-    chunk = scipy.signal.filtfilt(audio_hp_b, audio_hp_a, chunk)
-    
-    chunks_power.pop(0)
-    chunks_power.append(signal_power_db(chunk, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN))
-    chunks_zcr.pop(0)
-    chunks_zcr.append(librosa.feature.zero_crossing_rate(y=chunk, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0])
 
-    power = np.concatenate(chunks_power)
-    power = scipy.signal.filtfilt(pow_lp_b, pow_lp_a, power)
-    zcr = np.concatenate(chunks_zcr)
-    if chunk_idx == 4:
-        # Estimate noise power from the first 4 chunks (2 seconds)
-        noise_power = np.mean(np.concatenate(chunks_power[-4:]))
+    audio = np.concatenate(chunks)
+    audio = scipy.signal.filtfilt(audio_hp_b, audio_hp_a, audio)
+    power = signal_power_db(audio, frame_length=PROC_FRAME_LEN, hop=PROC_HOP_LEN)
+    zcr = librosa.feature.zero_crossing_rate(y=audio, frame_length=PROC_FRAME_LEN, hop_length=PROC_HOP_LEN)[0]
+    if chunk_idx == 10:
+        print(audio.shape, power.shape, zcr.shape)
+        noise_power = np.mean(power)
         vad.set_threshold(noise_power + 5)
         print(f"Noise power estimated: {noise_power:.2f} dB")
 
-    speech_rate_estimate = speech_rate_estimate_power(power, zcr, peak_th=noise_power+5, peak_prominence=1)
+    speech_rate_estimate = speech_rate_estimate_power(power, peak_th=noise_power+5, peak_prominence=2)
     zcr = scipy.signal.filtfilt(zcr_b, zcr_a, zcr)
 
     speech_timestamps, speech_activity = vad.process(power)
